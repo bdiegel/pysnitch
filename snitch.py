@@ -6,7 +6,6 @@ from flask.ext.restful import reqparse
 
 from couchbase import Couchbase
 from couchbase.views.params import Query
-from couchbase.exceptions import CouchbaseError
 
 
 # configure application
@@ -19,30 +18,17 @@ cb = Couchbase.connect(bucket=app.config['DATABASE'], host=app.config['HOST'])
 # initialize our api
 api = restful.Api(app)
 
-# try:
-#     result = c.get("ff729551-8f91-4929-abaf-b80579ce76a1")
-#
-# except CouchbaseError as e:
-#     print "Couldn't retrieve value for key", e
-#     # Rethrow the exception, making the application exit
-#     raise
-#
-# doc = result.value
-#
-# print unicode("Name: {name}, Score: {score}").format(name=doc['name'], score=doc['score'])
-
 
 class HelloWorldAPI(restful.Resource):
 
     def __init__(self):
         self.reqparse = reqparse.RequestParser()
         self.reqparse.add_argument('name', type = str, required = True,
-            help = 'No name argument provided', location = 'args')
+            help = "Argument 'name' is required", location = 'args')
         super(HelloWorldAPI, self).__init__()
 
     def get(self):
         args = self.reqparse.parse_args()
-        # name = request.args.get("name")
         return { 'hello' : args['name']}
 
 
