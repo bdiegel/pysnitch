@@ -50,9 +50,10 @@ class InspectionsByNameAPI(restful.Resource):
         inspections = []
         for result in view_results:
             print result
-            inspections.append({ 'id' : result.docid, 'date' : result.key[1:4], 'score': result.value })
+            inspections.append({ 'id' : result.docid, 'name': name, 'date' : result.key[1:4], 'score': result.value })
 
-        return { 'name': name, 'inspections':  inspections }
+        return  inspections 
+#        return { 'inspections' : inspections }
 
 
 # Create routes
@@ -62,4 +63,5 @@ api.add_resource(InspectionsByNameAPI, '/inspections/by_name/<string:name>')
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False, host='0.0.0.0', port=9090)
+#    app.run(debug=True)
