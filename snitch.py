@@ -1,67 +1,94 @@
+from couchbase.bucket import Bucket
+from couchbase.views.iterator import View, Query
 
 from flask import Flask, request
 from flask import jsonify
 from flask.ext import restful
 from flask.ext.restful import reqparse
 
-from couchbase import Couchbase
-from couchbase.views.params import Query
+from prod_settings import *
 
 
 # configure application
 app = Flask(__name__)
-app.config.from_pyfile('prod_settings.py')
 
 # create couchbase connection
-cb = Couchbase.connect(bucket=app.config['DATABASE'], host=app.config['HOST'])
+cb = Bucket(CB_URL+BUCKET)
 
 # initialize our api
 api = restful.Api(app)
+
+
+# Find most recent entry for placeId:
+def queryRecentByPlaceId(value):
+    q = Query(group=True, reduce=True, key=value)
+    return cb.query(DESIGN_DOC_INSPECTIONS, VIEW_BY_PLACEID, query=q)
+
+
+# Find most recent entries by location given by bbox:
+def queryRecentByLoc(lat1, lng1, lat2, lng2):
+    q = Query(group=True, reduce=True, inclusive_end=True, limit=100,
+        mapkey_range=[[lat1,lng1], [lat2,lng2]] )
+        #connection_timeout=60000
+    return cb.query(DESIGN_DOC_INSPECTIONS, VIEW_BY_LOC, query=q)
 
 
 class HelloWorldAPI(restful.Resource):
 
     def __init__(self):
         self.reqparse = reqparse.RequestParser()
-        self.reqparse.add_argument('name', type = str, required = True,
-            help = "Argument 'name' is required", location = 'args')
+        self.reqparse.add_argument('name',
+            type=str, required=True, location='args',
+            help = "Argument 'name' is required")
         super(HelloWorldAPI, self).__init__()
 
     def get(self):
         args = self.reqparse.parse_args()
-        return { 'hello' : args['name']}
+        return { 'hello': args['name'] }
 
 
-class InspectionsAPI(restful.Resource):
+class InspectionsByPlaceId(restful.Resource):
 
     def get(self, id):
-        doc = cb.get(id)
-        print "key: {0}\nvalue: {1}".format(doc.key, doc.value)
-        return doc.value
-
-
-class InspectionsByNameAPI(restful.Resource):
-
-    def get(self, name):
-
-        mapkey_range = [[name], [name, Query.STRING_RANGE_END]]
-        view_results = cb.query(app.config['DESIGN_DOC_INSPECTIONS'], app.config['VIEW_INSPECTIONS_BY_NAME'], mapkey_range=mapkey_range)
-
+        rs = queryRecentByPlaceId(id)
         inspections = []
-        for result in view_results:
-            print result
-            inspections.append({ 'id' : result.docid, 'name': name, 'date' : result.key[1:4], 'score': result.value })
+        for result in rs:
+            print "place_id: {0} value: {1}".format(id, result.value)
+            inspections.append(result.value)
+        return inspections
 
-        return  inspections 
-#        return { 'inspections' : inspections }
+
+class InspectionsByLoc(restful.Resource):
+
+    def __init__(self):
+        self.reqparse = reqparse.RequestParser()
+        self.reqparse.add_argument('bbox',
+            type=str, required=True, location='args',
+            help = "Argument 'bbox' is required: bbox=<lat1,lng1,lat2,lng2>")
+        super(InspectionsByLoc, self).__init__()
+
+    def get(self):
+        args = self.reqparse.parse_args()
+        bbox = args['bbox'].split(",")
+        rs = queryRecentByLoc(float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3]))
+        inspections = []
+        for result in rs:
+            print "result.value: {0}".format(result.value)
+            inspections.append(result.value)
+        return inspections
 
 
 # Create routes
 api.add_resource(HelloWorldAPI, '/hello')
-api.add_resource(InspectionsAPI, '/inspections/<string:id>')
-api.add_resource(InspectionsByNameAPI, '/inspections/by_name/<string:name>')
+api.add_resource(InspectionsByPlaceId, '/inspections/by_placeid/<string:id>')
+api.add_resource(InspectionsByLoc, '/inspections/by_loc')
 
 
+# default port is 5000
 if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0', port=9090)
-#    app.run(debug=True)
+    app.run(debug=True)
+# app.run(debug=False, host='0.0.0.0', port=9090)
+
+
+
+
