@@ -86,8 +86,8 @@ api.add_resource(InspectionsByLoc, '/inspections/by_loc')
 
 # default port is 5000
 if __name__ == '__main__':
-    app.run(debug=True)
-# app.run(debug=False, host='0.0.0.0', port=9090)
+#    app.run(debug=True)
+   app.run(debug=False, host='0.0.0.0', port=9090)
 
 
 
