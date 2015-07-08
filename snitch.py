@@ -27,7 +27,7 @@ def queryRecentByPlaceId(value):
 
 # Find most recent entries by location given by bbox:
 def queryRecentByLoc(lat1, lng1, lat2, lng2):
-    q = Query(group=True, reduce=True, inclusive_end=True, limit=100,
+    q = Query(group=True, reduce=True, inclusive_end=True, limit=5000,
         mapkey_range=[[lat1,lng1], [lat2,lng2]] )
         #connection_timeout=60000
     return cb.query(DESIGN_DOC_INSPECTIONS, VIEW_BY_LOC, query=q)
@@ -64,17 +64,32 @@ class InspectionsByLoc(restful.Resource):
         self.reqparse = reqparse.RequestParser()
         self.reqparse.add_argument('bbox',
             type=str, required=True, location='args',
-            help = "Argument 'bbox' is required: bbox=<lat1,lng1,lat2,lng2>")
+            help = "Argument 'bbox' is required: bbox=<lng1,lat1,lng2,lat2>")
         super(InspectionsByLoc, self).__init__()
 
     def get(self):
         args = self.reqparse.parse_args()
+	print "args: {0}".format(args)
         bbox = args['bbox'].split(",")
+        minLat = float(bbox[1])
+        maxLat = float(bbox[3])
         rs = queryRecentByLoc(float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3]))
         inspections = []
         for result in rs:
-            print "result.value: {0}".format(result.value)
-            inspections.append(result.value)
+            # filter results by latitude
+            place = result.value['place']
+            loc = place['location']
+            name = place['name']
+            lat = float(unicode(loc['lat']))
+            print "lat value: {0}".format(lat)
+            if  ( minLat < lat < maxLat) :
+            	print u"included by lat filter: {0}".format(name)
+		print result.value
+            	inspections.append(result.value)
+	    else: 
+		print u"excluded by lat filter: {0}".format(name)
+
+	print "returning {0} results".format(len(inspections))
         return inspections
 
 
@@ -86,8 +101,9 @@ api.add_resource(InspectionsByLoc, '/inspections/by_loc')
 
 # default port is 5000
 if __name__ == '__main__':
-#    app.run(debug=True)
-   app.run(debug=False, host='0.0.0.0', port=9090)
+    app.run(debug=True, host='0.0.0.0', port=9090)
+    #app.run(debug=False, host='0.0.0.0', port=9090)
+    #app.run(debug=True)
 
 
 
