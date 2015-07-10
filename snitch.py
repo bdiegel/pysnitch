@@ -106,7 +106,7 @@ class InspectionsByLoc(restful.Resource):
 
 	# max distance from point
         self.reqparse.add_argument('dist',
-            type=str, required=False, location='args', default=800,
+            type=float, required=False, location='args', default=800.0,
             help = "Specify distance 'dist' in meters from 'pt' (optional): dist=<n>")
 
         super(InspectionsByLoc, self).__init__()
@@ -119,6 +119,7 @@ class InspectionsByLoc(restful.Resource):
         lng = float(pt[0])
         lat = float(pt[1])
 	results = queryRecentByLoc(lng, lat, dist)
+        print "found {0} matched for location".format(len(results))
         return results
 
 
