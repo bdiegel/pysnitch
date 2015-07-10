@@ -1,5 +1,6 @@
-from couchbase.bucket import Bucket
-from couchbase.views.iterator import View, Query
+from pymongo import MongoClient
+from pymongo.errors import ConnectionFailure
+from bson import json_util
 
 from flask import Flask, request
 from flask import jsonify
@@ -8,30 +9,64 @@ from flask.ext.restful import reqparse
 
 from prod_settings import *
 
+import json
 
 # configure application
 app = Flask(__name__)
 
-# create couchbase connection
-cb = Bucket(CB_URL+BUCKET)
+# create database connection
+try:
+   client = MongoClient(HOST, PORT)
+   client.ks.authenticate(USER_NAME, PASSWORD, mechanism=CREDENTIAL_MECHANISM)
+   print "Connected successfully"
+except ConnectionFailure, e:
+   print "Cound not connect to MongoDB: %s" % e
+
+# get collection
+insp = client.ks.insp_objid
 
 # initialize our api
 api = restful.Api(app)
 
 
-# Find most recent entry for placeId:
-def queryRecentByPlaceId(value):
-    q = Query(group=True, reduce=True, key=value)
-    return cb.query(DESIGN_DOC_INSPECTIONS, VIEW_BY_PLACEID, query=q)
+# Find most recent entries by location given by point and distance:
+def queryRecentByLoc(lng, lat, dist=800):
+        
+    geoNear = { 
+        "$geoNear": {
+	    "near": { "type": "Point", "coordinates": [lng, lat] },
+	    "distanceField": "dist.calculated",
+            "maxDistance": dist,
+	    "includeLocs": "place.location",
+            "num": 5000,
+	    "spherical": True
+        }
+    }
 
+    group = { 
+        "$group": {
+	    "_id": "$place.place_id", 
+            "last_inspection": { 
+                "$max": { 
+                    "_id": "$_id", "doctype": "$doctype", "inspection": "$inspection", "place": "$place" 
+                } 
+	     }, 
+	     "dist": { "$max": "$dist" }
+         }
+    }
 
-# Find most recent entries by location given by bbox:
-def queryRecentByLoc(lat1, lng1, lat2, lng2):
-    q = Query(group=True, reduce=True, inclusive_end=True, limit=5000,
-        mapkey_range=[[lat1,lng1], [lat2,lng2]] )
-        #connection_timeout=60000
-    return cb.query(DESIGN_DOC_INSPECTIONS, VIEW_BY_LOC, query=q)
+    sort = { "$sort": { "dist": 1 } }
+    
+    # execute aggregate pipeline
+    pipeline = [geoNear, group, sort]
+    rs = insp.aggregate(pipeline)
 
+    inspections = []
+    for result in rs:
+        inspections.append(json.loads(json_util.dumps(result["last_inspection"])))
+
+    return inspections
+	
 
 class HelloWorldAPI(restful.Resource):
 
@@ -50,11 +85,12 @@ class HelloWorldAPI(restful.Resource):
 class InspectionsByPlaceId(restful.Resource):
 
     def get(self, id):
-        rs = queryRecentByPlaceId(id)
+	print "find inspections by place_id: {0}".format(id)
+	rs = insp.find( { "place.place_id": id } )
         inspections = []
         for result in rs:
-            print "place_id: {0} value: {1}".format(id, result.value)
-            inspections.append(result.value)
+            print "found inspection for place_id: {0}".format(id)
+            inspections.append(json.loads(json_util.dumps(result)))
         return inspections
 
 
@@ -62,35 +98,28 @@ class InspectionsByLoc(restful.Resource):
 
     def __init__(self):
         self.reqparse = reqparse.RequestParser()
-        self.reqparse.add_argument('bbox',
+
+	# point argument required
+        self.reqparse.add_argument('pt',
             type=str, required=True, location='args',
-            help = "Argument 'bbox' is required: bbox=<lng1,lat1,lng2,lat2>")
+            help = "Argument 'pt' is required: pt=<lng,lat>")
+
+	# max distance from point
+        self.reqparse.add_argument('dist',
+            type=str, required=False, location='args', default=800,
+            help = "Specify distance 'dist' in meters from 'pt' (optional): dist=<n>")
+
         super(InspectionsByLoc, self).__init__()
 
     def get(self):
         args = self.reqparse.parse_args()
 	print "args: {0}".format(args)
-        bbox = args['bbox'].split(",")
-        minLat = float(bbox[1])
-        maxLat = float(bbox[3])
-        rs = queryRecentByLoc(float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3]))
-        inspections = []
-        for result in rs:
-            # filter results by latitude
-            place = result.value['place']
-            loc = place['location']
-            name = place['name']
-            lat = float(unicode(loc['lat']))
-            print "lat value: {0}".format(lat)
-            if  ( minLat < lat < maxLat) :
-            	print u"included by lat filter: {0}".format(name)
-		print result.value
-            	inspections.append(result.value)
-	    else: 
-		print u"excluded by lat filter: {0}".format(name)
-
-	print "returning {0} results".format(len(inspections))
-        return inspections
+        pt = args['pt'].split(",")
+        dist = args['dist']
+        lng = float(pt[0])
+        lat = float(pt[1])
+	results = queryRecentByLoc(lng, lat, dist)
+        return results
 
 
 # Create routes
